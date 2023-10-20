@@ -1,8 +1,11 @@
 # encryptor
-// TODO(user): Add simple overview of use/purpose
+Push Secrets Encrypted with AWS KMS ID (SYMMETRIC_DEFAULT) to SSM Paramter Store
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+external-secrets has a CRD which is PushSecret used to push secrets from Kubernetes to list of supported secret stores.
+But it relies on Kubernetes kind Secret to retreive the secret values and refers them in its CRD to push the secrets. i.e, it is not independent
+
+Goal of this project is to be able to store the secrets/credentials in encrypted format in git repositories and use CRD PushEncryptedSecret to push those secrets to Parameter store.
 
 ## Build and Deploy 
 1. Install CRD
@@ -30,6 +33,10 @@ ssm:DeleteParameter
 vi config/manager/manager.yaml
 kustomize build . | k apply -f -
 ```
+
+**NOTE:** If Integrating with ArgoCD - Enable Health Checks for CRD
+Check `argocd/custom-healthcheck.yaml` folder
+UPDATE the lua scipt whenever you make changes to CRD Status subresource.
 
 **NOTE:** You can also run this in one step by running: `make install run`
 
