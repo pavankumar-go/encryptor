@@ -1,0 +1,23 @@
+# k edit cm argocd-cm -n argocd
+spec:
+  data:
+    resource.customizations: |
+      encryptor.dev/PushEncryptedSecret:
+        health.lua: |
+          health_status = {}
+          if obj.status ~= nil then
+            if obj.status.status == "SUCCESS" then
+              health_status.status = "Healthy"
+              health_status.message = "Successfully Pushed Encrypted Secrets."
+            elseif obj.status.status == "ERROR" then
+              health_status.status = "Degraded"
+              health_status.message = obj.status.reason
+            else
+              health_status.status = "Progressing"
+              health_status.message = "Waiting for PushEncryptedSecret."
+            end
+            return health_status
+          end
+          health_status.status = "Progressing"
+          health_status.message = "Waiting for PushEncryptedSecret."
+          return health_status
