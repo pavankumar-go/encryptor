@@ -20,6 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+var (
+	STORE_FAILED  = "Failed to store"
+	STORE_SUCCESS = "Successfully synced to Parameter store"
+	MESSAGE_OK    = "ALLOK"
+)
+
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
@@ -29,17 +35,33 @@ type PushEncryptedSecretSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of PushEncryptedSecret. Edit pushencryptedsecret_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Data []PushEncryptedSecretData `json:"data"`
+}
+
+// PushEncryptedSecretSpec defines the desired state of PushEncryptedSecret
+type PushEncryptedSecretData struct {
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+
+	// Foo is an example field of PushEncryptedSecret. Edit pushencryptedsecret_types.go to remove/update
+	EncryptedSecret string `json:"encryptedSecret"`
+	RemoteRefKey    string `json:"remoteRefKey"`
 }
 
 // PushEncryptedSecretStatus defines the observed state of PushEncryptedSecret
 type PushEncryptedSecretStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Status           string      `json:"status,omitempty"`
+	Reason           string      `json:"reason,omitempty"`
+	Hash             string      `json:"hash,omitempty"`
+	ErrorOnOperation string      `json:"errorOnOperation,omitempty"`
+	LastUpdate       metav1.Time `json:"lastUpdate,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=`.status.status`
 
 // PushEncryptedSecret is the Schema for the pushencryptedsecrets API
 type PushEncryptedSecret struct {

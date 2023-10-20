@@ -9,13 +9,13 @@ metadata:
     app.kubernetes.io/created-by: encryptor
     app.kubernetes.io/part-of: encryptor
     app.kubernetes.io/managed-by: kustomize
-  name: system
+  name: encryptor-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: controller-manager
-  namespace: system
+  namespace: encryptor-system
   labels:
     control-plane: controller-manager
     app.kubernetes.io/name: deployment
@@ -70,7 +70,11 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: controller:latest
+        image: 
+        env:
+        - name: KMS_KEY_ID
+          value: 
+        imagePullPolicy: Always
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
@@ -94,9 +98,16 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 128Mi
+            memory: 200Mi
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 100m
+            memory: 100Mi
+      nodeSelector:
+        nodesrole: ops
+      tolerations:
+      - key: noderole
+        value: ops
+        effect: NoSchedule
+        operator: Equal
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

@@ -24,3 +24,9 @@ Dockerfile.cross
 *.swp
 *.swo
 *~
+
+# manager bin
+manager
+
+# vendor
+vendor/*

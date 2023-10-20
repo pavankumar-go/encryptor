@@ -52,3 +52,9 @@ func requeueWithError(log logr.Logger, msg string, err error) (ctrl.Result, erro
 	log.Error(err, msg)
 	return ctrl.Result{}, err
 }
+
+func requeueWithTimeoutAndError(t int32, err error) (ctrl.Result, error) {
+	return ctrl.Result{RequeueAfter: time.Second * time.Duration(t),
+		Requeue: true,
+	}, err
+}
