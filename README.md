@@ -2,7 +2,7 @@
 Push Secrets Encrypted with AWS KMS ID (SYMMETRIC_DEFAULT) to SSM Paramter Store
 
 ## Description
-external-secrets has a CRD which is PushSecret used to push secrets from Kubernetes to list of supported secret stores.
+external-secrets/external-secrets has a CRD which is called `PushSecret` used for pushing secrets from Kubernetes to a list of supported secret stores,
 But it relies on Kubernetes kind Secret to retreive the secret values and refers them in its CRD to push the secrets. i.e, it is not independent
 
 Goal of this project is to be able to store the secrets/credentials in encrypted format in git repositories and use CRD PushEncryptedSecret to push those secrets to Parameter store.
