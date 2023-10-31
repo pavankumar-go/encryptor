@@ -1,0 +1,13 @@
+apiVersion: kubernetes-client.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ include "chart.fullname" . }}-encryptor-manager
+  labels:
+  {{- include "chart.labels" . | nindent 4 }}
+spec:
+  backendType: systemManager
+  data:
+  - key: /prod/dc/id/encryptor-manager/AWS_ACCESS_KEY_ID
+    name: AWS_ACCESS_KEY_ID
+  - key: /prod/dc/id/encryptor-manager/AWS_SECRET_ACCESS_KEY
+    name: AWS_SECRET_ACCESS_KEY
