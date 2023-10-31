@@ -70,10 +70,15 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: 
+        image: 868948896061.dkr.ecr.ap-southeast-3.amazonaws.com/ops:crd-encryptor-v0.1
         env:
         - name: KMS_KEY_ID
-          value: 
+          value: 4c9b9694-6e11-41d7-8cf7-8af8137ed5e3
+        - name: AWS_REGION
+          value: ap-southeast-3
+        envFrom:
+        - secretRef:
+            name: encryptor-encryptor-manager
         imagePullPolicy: Always
         name: manager
         securityContext:
@@ -103,9 +108,9 @@ spec:
             cpu: 100m
             memory: 100Mi
       nodeSelector:
-        nodesrole: ops
+        node-role: ops
       tolerations:
-      - key: noderole
+      - key: node-role
         value: ops
         effect: NoSchedule
         operator: Equal
