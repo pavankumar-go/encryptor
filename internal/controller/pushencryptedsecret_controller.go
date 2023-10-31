@@ -134,7 +134,6 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 				logger.Error(err, "Name", encryptedSecret.Name)
 				return ctrl.Result{}, err
 			}
-
 			logger.Info("Resource successfully deleted", "Name", encryptedSecret.Name)
 		}
 
@@ -269,6 +268,7 @@ func (r *PushEncryptedSecretReconciler) deleteSSMKeys(ctx context.Context, keysT
 }
 
 func (r *PushEncryptedSecretReconciler) compareAndDeleteKeysOnUpdate(oldObject, newObject *encryptoriov1beta1.PushEncryptedSecret) bool {
+	logger := log.Log.WithName("PushEncryptedSecret").WithValues("Namespace", newObject.Namespace)
 	ssmKeysToDelete := []string{}
 	updatedKeysMap := map[string]bool{}
 
@@ -286,10 +286,13 @@ func (r *PushEncryptedSecretReconciler) compareAndDeleteKeysOnUpdate(oldObject, 
 	// delete keys which were removed on latest apply
 	if len(ssmKeysToDelete) != 0 {
 		if err := r.deleteSSMKeys(context.Background(), ssmKeysToDelete); err != nil {
-			log.Log.Error(err, "Error deleting missing ssm keys on update")
+			logger.Error(err, "Error deleting missing ssm keys on update")
 			return true // log & reconcile anyway
 		}
-		log.Log.Info("Deleted SSM parameters missing on update", "Name", newObject.Name, "Keys Under deletion", ssmKeysToDelete)
+		logger.Info("Deleted missing SSM parameters on resource update", "Name", newObject.Name, "Keys Under deletion", ssmKeysToDelete)
+		newHash, _ := hashstructure.Hash(newObject.Spec.Data, nil)
+		newHashStr := strconv.FormatUint(newHash, 10)
+		r.handleSuccessStatus(logger, context.Background(), newObject, newHashStr)
 	}
 
 	return oldObject.Status != newObject.Status
