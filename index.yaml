@@ -6,7 +6,7 @@ entries:
     created: "2023-10-31T14:42:03.240795+05:30"
     description: A Helm chart for Kubernetes
     digest: 43ca3ff801d2feb208037c65b8554241365b3e1e7dc44d03f94b4ea21cef32be
-    name: chart
+    name: encryptor
     type: application
     urls:
     - https://github.com/pavankumar-go/encryptor/releases/download/0.1.0/chart-0.1.0.tgz
