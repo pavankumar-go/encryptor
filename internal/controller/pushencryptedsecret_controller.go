@@ -82,8 +82,8 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	logger.Info("Got PushEncryptedSecret resource", "Name", encryptedSecret.Name)
 
-	hash, _ := hashstructure.Hash(encryptedSecret.Spec.Data, nil)
-	resourceHash := strconv.FormatUint(hash, 10)
+	h, _ := hashstructure.Hash(encryptedSecret.Spec.Data, nil)
+	resourceHash := strconv.FormatUint(h, 10)
 
 	// examine DeletionTimestamp to determine if object is under deletion
 	if encryptedSecret.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -107,8 +107,8 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 				keysTodelete = append(keysTodelete, keyToDel.RemoteRefKey)
 			}
 
-			// Deletion was already in progress
-			// slow down to avoid request throttling to AWS
+			// Error on deletion
+			// slow down reconcilation to avoid request throttling to AWS
 			if encryptedSecret.Status.ErrorOnOperation == OP_DELETE {
 				time.Sleep(60 * time.Second)
 			}
@@ -117,7 +117,7 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 				// if fail to delete the external dependency here, return with error
 				// so that it can be retried
 				if _, err := r.handleErrorStatus(logger, ctx, encryptedSecret, err.Error(), resourceHash, OP_DELETE); err != nil {
-					logger.Error(err, "Failed to update error status")
+					logger.Error(err, "Failed to update resource status on deletion")
 					return ctrl.Result{}, err
 				}
 				logger.Error(err, "Failed to delete parameters", "Name", encryptedSecret.Name)
@@ -127,6 +127,7 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 			// remove our finalizer from the list and update it.
 			if controllerutil.RemoveFinalizer(encryptedSecret, finalizerName) {
 				if err := r.Update(ctx, encryptedSecret); err != nil {
+					logger.Error(err, "Failed to update resource on finalizer removal", "Name", encryptedSecret.Name)
 					return ctrl.Result{}, err
 				}
 			} else {
@@ -143,8 +144,8 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	// Skip reconciliation if object's "status.hash" is unchanged
 	if r.changesDetected(encryptedSecret) {
-		logger.Info("Starting create or update on resource", "Name", encryptedSecret.Name)
-		err := r.createOrUpdateSSM(ctx, encryptedSecret.Spec.Data)
+		logger.Info("Storing SSM parameters of resource", "Name", encryptedSecret.Name)
+		err := r.putSSMKeys(ctx, encryptedSecret.Spec.Data)
 		if err != nil {
 			if _, err := r.handleErrorStatus(logger, ctx, encryptedSecret, err.Error(), resourceHash, OP_UPDATE); err != nil {
 				logger.Error(err, "Failed to update error status")
@@ -152,14 +153,14 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 			}
 			logger.Error(err, "Failed to create or update parameters", "Name", encryptedSecret.Name)
 			// Errors will be related to only AWS
-			// returning with error will cause immediate requeue and too many requests made to AWS
+			// returning with error will cause immediate requeue and too many requests will be made to AWS
 			// only way to slow down the queueing & avoid getting request throlling on AWS and also return error to reconciler is to sleep the execution
 			// till i find a better approach
 			time.Sleep(60 * time.Second)
 			return ctrl.Result{}, err
 		}
 
-		logger.Info("Create Or Update Complete", "Name", encryptedSecret.Name)
+		logger.Info("Create Or Update SSM Parameters Complete", "Name", encryptedSecret.Name)
 		return r.handleSuccessStatus(logger, ctx, encryptedSecret, resourceHash)
 	}
 
@@ -177,7 +178,7 @@ func (r *PushEncryptedSecretReconciler) changesDetected(obj *encryptoriov1beta1.
 		return true // empty hash means new resource
 	}
 
-	// reconcile if hash dont match OR if previous create/update as failed
+	// reconcile if hash dont match AND if previous create/update as failed
 	if newHashStr == oldHash && obj.Status.Status == "ERROR" {
 		return true
 	}
@@ -200,9 +201,20 @@ func (r *PushEncryptedSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 		WithEventFilter(
 			predicate.Funcs{
 				UpdateFunc: func(e event.UpdateEvent) bool {
+					// kubectl delete adds deletionTimeStamp which is an update event.
+					// ignore this event and perform reconcile.
+					if e.ObjectNew.(*encryptoriov1beta1.PushEncryptedSecret).GetDeletionTimestamp() != nil {
+						_, _ = reconcile()
+						return true
+					}
+
+					// keys will be decrypted and pushed every time on reconcile.
+					// hence the hash is added in the status, skip reconcilation if old hash == new hash
 					oldObject := e.ObjectOld.(*encryptoriov1beta1.PushEncryptedSecret)
 					newObject := e.ObjectNew.(*encryptoriov1beta1.PushEncryptedSecret)
-					return r.compareAndDeleteKeysOnUpdate(oldObject, newObject)
+					
+					// TODO: rename the function.
+					return r.decideOnUpdate(oldObject, newObject)
 				},
 				CreateFunc: func(e event.CreateEvent) bool {
 					_, _ = reconcile()
@@ -216,7 +228,7 @@ func (r *PushEncryptedSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *PushEncryptedSecretReconciler) createOrUpdateSSM(ctx context.Context, secretdata []encryptoriov1beta1.PushEncryptedSecretData) error {
+func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretdata []encryptoriov1beta1.PushEncryptedSecretData) error {
 	ssmconn := conn.SSMConnection()
 	kmsconn := conn.KMSConnection()
 	sectype := "SecureString"
@@ -267,32 +279,46 @@ func (r *PushEncryptedSecretReconciler) deleteSSMKeys(ctx context.Context, keysT
 	return nil
 }
 
-func (r *PushEncryptedSecretReconciler) compareAndDeleteKeysOnUpdate(oldObject, newObject *encryptoriov1beta1.PushEncryptedSecret) bool {
+func (r *PushEncryptedSecretReconciler) decideOnUpdate(oldObject, newObject *encryptoriov1beta1.PushEncryptedSecret) bool {
 	logger := log.Log.WithName("PushEncryptedSecret").WithValues("Namespace", newObject.Namespace)
-	ssmKeysToDelete := []string{}
-	updatedKeysMap := map[string]bool{}
 
-	for _, new := range newObject.Spec.Data {
-		updatedKeysMap[new.RemoteRefKey] = true
+	newObjectKeysMap := map[string]bool{}
+	// store the new object spec.data.RemoteRefKey[] in newObjectKeysMap
+	for _, data := range newObject.Spec.Data {
+		newObjectKeysMap[data.RemoteRefKey] = true
 	}
 
-	for _, old := range oldObject.Spec.Data {
-		if !updatedKeysMap[old.RemoteRefKey] {
-			ssmKeysToDelete = append(ssmKeysToDelete, old.RemoteRefKey)
+	ssmKeysToDelete := []string{}
+	// check the missing spec.data.RemoteRefKey with newObjectKeysMap
+	for _, data := range oldObject.Spec.Data {
+		if !newObjectKeysMap[data.RemoteRefKey] {
+			ssmKeysToDelete = append(ssmKeysToDelete, data.RemoteRefKey)
 		}
 	}
 
 	// compare old and new object changes,
 	// delete keys which were removed on latest apply
+	h, _ := hashstructure.Hash(newObject.Spec.Data, nil)
+	hashStr := strconv.FormatUint(h, 10)
+
 	if len(ssmKeysToDelete) != 0 {
 		if err := r.deleteSSMKeys(context.Background(), ssmKeysToDelete); err != nil {
-			logger.Error(err, "Error deleting missing ssm keys on update")
+			logger.Error(err, "Error deleting ssm keys on update")
 			return true // log & reconcile anyway
 		}
 		logger.Info("Deleted missing SSM parameters on resource update", "Name", newObject.Name, "Keys Under deletion", ssmKeysToDelete)
-		newHash, _ := hashstructure.Hash(newObject.Spec.Data, nil)
-		newHashStr := strconv.FormatUint(newHash, 10)
-		r.handleSuccessStatus(logger, context.Background(), newObject, newHashStr)
+		r.handleSuccessStatus(logger, context.Background(), newObject, hashStr)
+	}
+
+	// prevent immediate reconcilation of same resource after its creation
+	if oldObject.Status.Hash == "" && newObject.Status.Hash != "" {
+		return false
+	}
+
+	// reconcile immediately if any new key is added or updated
+	if newObject.Status.Hash != "" && newObject.Status.Hash != hashStr {
+		_, _ = reconcile()
+		return true
 	}
 
 	return oldObject.Status != newObject.Status
