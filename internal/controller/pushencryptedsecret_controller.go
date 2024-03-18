@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -114,14 +115,16 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 			}
 
 			if err := r.deleteSSMKeys(ctx, keysTodelete); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried
-				if _, err := r.handleErrorStatus(logger, ctx, encryptedSecret, err.Error(), resourceHash, OP_DELETE); err != nil {
-					logger.Error(err, "Failed to update resource status on deletion")
+				if !strings.Contains(err.Error(), "ParameterNotFound") { // ignore keys that are not found on delete
+					logger.Error(err, "Failed to delete parameters", "Name", encryptedSecret.Name)
+					// if fail to delete the external dependency here, return with error
+					// so that it can be retried
+					if _, err := r.handleErrorStatus(logger, ctx, encryptedSecret, err.Error(), resourceHash, OP_DELETE); err != nil {
+						logger.Error(err, "Failed to update resource status on deletion")
+						return ctrl.Result{}, err
+					}
 					return ctrl.Result{}, err
 				}
-				logger.Error(err, "Failed to delete parameters", "Name", encryptedSecret.Name)
-				return ctrl.Result{}, err
 			}
 
 			// remove our finalizer from the list and update it.
@@ -156,7 +159,7 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 			// returning with error will cause immediate requeue and too many requests will be made to AWS
 			// only way to slow down the queueing & avoid getting request throlling on AWS and also return error to reconciler is to sleep the execution
 			// till i find a better approach
-			time.Sleep(60 * time.Second)
+			time.Sleep(5 * time.Second)
 			return ctrl.Result{}, err
 		}
 
@@ -212,7 +215,7 @@ func (r *PushEncryptedSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 					// hence the hash is added in the status, skip reconcilation if old hash == new hash
 					oldObject := e.ObjectOld.(*encryptoriov1beta1.PushEncryptedSecret)
 					newObject := e.ObjectNew.(*encryptoriov1beta1.PushEncryptedSecret)
-					
+
 					// TODO: rename the function.
 					return r.decideOnUpdate(oldObject, newObject)
 				},
@@ -236,7 +239,7 @@ func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretda
 	for _, data := range secretdata {
 		payload, err := base64.StdEncoding.DecodeString(data.EncryptedSecret)
 		if err != nil {
-			return err
+			return errors.New(data.RemoteRefKey + "\n" + err.Error())
 		}
 
 		decryptInput := &kms.DecryptInput{
@@ -247,7 +250,7 @@ func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretda
 
 		out, err := kmsconn.Decrypt(ctx, decryptInput)
 		if err != nil {
-			return err
+			return errors.New(data.RemoteRefKey + "\n" + err.Error())
 		}
 
 		ssmInput := &ssm.PutParameterInput{
@@ -259,7 +262,7 @@ func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretda
 		}
 		_, err = ssmconn.PutParameter(ctx, ssmInput)
 		if err != nil {
-			return err
+			return errors.New(data.RemoteRefKey + "\n" + err.Error())
 		}
 	}
 
