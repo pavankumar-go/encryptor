@@ -310,7 +310,6 @@ func (r *PushEncryptedSecretReconciler) decideOnUpdate(oldObject, newObject *enc
 			return true // log & reconcile anyway
 		}
 		logger.Info("Deleted missing SSM parameters on resource update", "Name", newObject.Name, "Keys Under deletion", ssmKeysToDelete)
-		r.handleSuccessStatus(logger, context.Background(), newObject, hashStr)
 	}
 
 	// prevent immediate reconcilation of same resource after its creation
