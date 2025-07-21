@@ -148,7 +148,7 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 	// Skip reconciliation if object's "status.hash" is unchanged
 	if r.changesDetected(encryptedSecret) {
 		logger.Info("Storing SSM parameters of resource", "Name", encryptedSecret.Name)
-		err := r.putSSMKeys(ctx, encryptedSecret.Spec.Data)
+		err := r.putSSMKeys(ctx, encryptedSecret.Spec)
 		if err != nil {
 			if _, err := r.handleErrorStatus(logger, ctx, encryptedSecret, err.Error(), resourceHash, OP_UPDATE); err != nil {
 				logger.Error(err, "Failed to update error status")
@@ -231,12 +231,12 @@ func (r *PushEncryptedSecretReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretdata []encryptoriov1beta1.PushEncryptedSecretData) error {
+func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, input encryptoriov1beta1.PushEncryptedSecretSpec) error {
 	ssmconn := conn.SSMConnection()
 	kmsconn := conn.KMSConnection()
 	sectype := "SecureString"
 
-	for _, data := range secretdata {
+	for _, data := range input.Data {
 		payload, err := base64.StdEncoding.DecodeString(data.EncryptedSecret)
 		if err != nil {
 			return errors.New(data.RemoteRefKey + "\n" + err.Error())
@@ -245,7 +245,7 @@ func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretda
 		decryptInput := &kms.DecryptInput{
 			CiphertextBlob:      []byte(payload),
 			EncryptionAlgorithm: "SYMMETRIC_DEFAULT",
-			KeyId:               conn.GetKMSKeyID(),
+			KeyId:               conn.GetKMSKeyID(input.KMSKeyID),
 		}
 
 		out, err := kmsconn.Decrypt(ctx, decryptInput)
@@ -254,7 +254,7 @@ func (r *PushEncryptedSecretReconciler) putSSMKeys(ctx context.Context, secretda
 		}
 
 		ssmInput := &ssm.PutParameterInput{
-			KeyId:     conn.GetKMSKeyID(),
+			KeyId:     conn.GetKMSKeyID(input.KMSKeyID),
 			Name:      aws.String(data.RemoteRefKey),
 			Value:     aws.String(string(out.Plaintext)),
 			Type:      types.ParameterType(sectype),
@@ -310,7 +310,6 @@ func (r *PushEncryptedSecretReconciler) decideOnUpdate(oldObject, newObject *enc
 			return true // log & reconcile anyway
 		}
 		logger.Info("Deleted missing SSM parameters on resource update", "Name", newObject.Name, "Keys Under deletion", ssmKeysToDelete)
-		r.handleSuccessStatus(logger, context.Background(), newObject, hashStr)
 	}
 
 	// prevent immediate reconcilation of same resource after its creation

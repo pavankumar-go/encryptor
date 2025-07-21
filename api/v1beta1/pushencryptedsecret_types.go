@@ -35,7 +35,9 @@ type PushEncryptedSecretSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of PushEncryptedSecret. Edit pushencryptedsecret_types.go to remove/update
-	Data []PushEncryptedSecretData `json:"data"`
+
+	KMSKeyID string                    `json:"kmsKeyId,omitempty"`
+	Data     []PushEncryptedSecretData `json:"data"`
 }
 
 // PushEncryptedSecretSpec defines the desired state of PushEncryptedSecret
