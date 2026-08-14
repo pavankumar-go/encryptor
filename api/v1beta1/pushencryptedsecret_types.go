@@ -21,9 +21,9 @@ import (
 )
 
 var (
-	STORE_FAILED  = "Failed to store"
-	STORE_SUCCESS = "Successfully synced to Parameter store"
-	MESSAGE_OK    = "ALLOK"
+	STORE_FAILED  = "Failed to store secrets in parameter store"
+	STORE_SUCCESS = "Successfully synced secrets to parameter store"
+	MESSAGE_OK    = "Ready"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -34,10 +34,20 @@ type PushEncryptedSecretSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of PushEncryptedSecret. Edit pushencryptedsecret_types.go to remove/update
+	// Edit pushencryptedsecret_types.go to remove/update
 
 	KMSKeyID string                    `json:"kmsKeyId,omitempty"`
 	Data     []PushEncryptedSecretData `json:"data"`
+
+	// ParameterStore, when set, additionally syncs secrets to AWS SSM Parameter Store
+	// under ParameterStore.KeyPathPrefix + "/" + secretKey. When unset, secrets are only
+	// synced to the Kubernetes Secret managed by this resource.
+	ParameterStore *AWSSSMParameterStore `json:"parameterStore,omitempty"`
+}
+
+// AWSSSMParameterStore defines key path prefix to use when storing secrets in AWS SSM
+type AWSSSMParameterStore struct {
+	KeyPathPrefix string `json:"keyPathPrefix,omitempty"`
 }
 
 // PushEncryptedSecretSpec defines the desired state of PushEncryptedSecret
@@ -45,9 +55,9 @@ type PushEncryptedSecretData struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of PushEncryptedSecret. Edit pushencryptedsecret_types.go to remove/update
+	// Edit pushencryptedsecret_types.go to remove/update
 	EncryptedSecret string `json:"encryptedSecret"`
-	RemoteRefKey    string `json:"remoteRefKey"`
+	SecretKey       string `json:"secretKey"`
 }
 
 // PushEncryptedSecretStatus defines the observed state of PushEncryptedSecret
@@ -59,6 +69,12 @@ type PushEncryptedSecretStatus struct {
 	Hash             string      `json:"hash,omitempty"`
 	ErrorOnOperation string      `json:"errorOnOperation,omitempty"`
 	LastUpdate       metav1.Time `json:"lastUpdate,omitempty"`
+
+	// SecretResourceVersion is the resourceVersion of the owned Kubernetes Secret
+	// as of our last successful write to it. A live resourceVersion that no longer
+	// matches this means the Secret was modified since (e.g. a manually edited or
+	// deleted key), and it needs to be resynced from the CRD.
+	SecretResourceVersion string `json:"secretResourceVersion,omitempty"`
 }
 
 //+kubebuilder:object:root=true

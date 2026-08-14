@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	encryptoriov1beta1 "github.com/encryptor/api/v1beta1"
-	"github.com/encryptor/internal/controller"
+	encryptoriov1beta1 "github.com/encrypted-secrets/api/v1beta1"
+	"github.com/encrypted-secrets/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 

@@ -12,7 +12,7 @@ import (
 )
 
 func SSMConnection() *ssm.Client {
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithClientLogMode(aws.LogRequestWithBody|aws.LogResponseWithBody|aws.LogRetries))
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithClientLogMode(aws.LogRetries))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func SSMConnection() *ssm.Client {
 }
 
 func KMSConnection() *kms.Client {
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithClientLogMode(aws.LogRequestWithBody|aws.LogResponseWithBody|aws.LogRetries))
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithClientLogMode(aws.LogRetries))
 	if err != nil {
 		log.Fatal(err)
 	}

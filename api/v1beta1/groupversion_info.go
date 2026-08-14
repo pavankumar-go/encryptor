@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1beta1 contains API Schema definitions for the encryptor.io v1beta1 API group
+// Package v1beta1 contains API Schema definitions for the encryptor.dev v1beta1 API group
 // +kubebuilder:object:generate=true
 // +groupName=encryptor.dev
 package v1beta1

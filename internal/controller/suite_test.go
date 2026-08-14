@@ -32,7 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	encryptoriov1beta1 "github.com/encryptor/api/v1beta1"
+	encryptoriov1beta1 "github.com/encrypted-secrets/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
