@@ -43,6 +43,12 @@ type PushEncryptedSecretSpec struct {
 	// under ParameterStore.KeyPathPrefix + "/" + secretKey. When unset, secrets are only
 	// synced to the Kubernetes Secret managed by this resource.
 	ParameterStore *AWSSSMParameterStore `json:"parameterStore,omitempty"`
+
+	// Labels, when set, are applied to the Kubernetes Secret managed by this resource
+	// (e.g. argocd.argoproj.io/secret-type: repo-creds). The Secret's labels are kept
+	// in sync with this field exactly, so removing a label here removes it from the
+	// Secret as well.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // AWSSSMParameterStore defines key path prefix to use when storing secrets in AWS SSM

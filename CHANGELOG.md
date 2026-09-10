@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-09-10
+
+### Added
+
+- `spec.labels`: applied to the Kubernetes Secret managed by this resource (e.g. `argocd.argoproj.io/secret-type: repo-creds`), kept in sync exactly — removing a label from `spec.labels` removes it from the Secret too.
+
 ## [0.2.0] - 2026-08-14
 
 ### Breaking

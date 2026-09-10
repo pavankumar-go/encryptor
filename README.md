@@ -24,6 +24,10 @@ spec:
   # to the Kubernetes Secret managed by this resource.
   parameterStore:
     keyPathPrefix: /prod/auth-service
+  # optional: applied to the managed Kubernetes Secret, kept in sync exactly
+  # (removing a label here removes it from the Secret too)
+  labels:
+    argocd.argoproj.io/secret-type: repo-creds
   data:
   - secretKey: TEST_PASSWORD
     encryptedSecret: <base64-encoded KMS ciphertext>

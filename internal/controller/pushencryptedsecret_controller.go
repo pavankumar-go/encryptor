@@ -320,6 +320,7 @@ func (r *PushEncryptedSecretReconciler) applyKubernetesSecret(ctx context.Contex
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
 		secret.Type = corev1.SecretTypeOpaque
 		secret.Data = data
+		secret.Labels = encryptedSecret.Spec.Labels
 		return controllerutil.SetControllerReference(encryptedSecret, secret, r.Scheme)
 	})
 	if err != nil {
