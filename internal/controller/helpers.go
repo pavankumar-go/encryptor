@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"regexp"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	encryptoriov1beta1 "github.com/encrypted-secrets/api/v1beta1"
@@ -29,14 +31,34 @@ func (r *PushEncryptedSecretReconciler) updateStatusWithRetry(ctx context.Contex
 	})
 }
 
+// awsRequestIDPattern matches the per-call request ID that AWS SDK v2 embeds in
+// error messages, which would otherwise make every repeat of the same failure
+// look like a new error.
+var awsRequestIDPattern = regexp.MustCompile(`RequestID: [^,\s]*`)
+
+func sameError(a, b string) bool {
+	return awsRequestIDPattern.ReplaceAllString(a, "") == awsRequestIDPattern.ReplaceAllString(b, "")
+}
+
 func (r *PushEncryptedSecretReconciler) handleErrorStatus(logger logr.Logger, ctx context.Context, encryptedSecret *encryptoriov1beta1.PushEncryptedSecret, err string, hash string, operation string) (ctrl.Result, error) {
+	// Skip the write when this failure repeats the one already recorded. The
+	// exception is once failedSyncRetryInterval has passed: then LastUpdate is
+	// refreshed, which restarts the retry cooldown in changesDetected.
+	current := encryptedSecret.Status
+	if current.Status == "ERROR" && current.Hash == hash && current.ErrorOnOperation == operation &&
+		sameError(current.Reason, err) && time.Since(current.LastUpdate.Time) < failedSyncRetryInterval {
+		return ctrl.Result{}, nil
+	}
+
 	updateErr := r.updateStatusWithRetry(ctx, encryptedSecret, func(obj *encryptoriov1beta1.PushEncryptedSecret) {
 		obj.Status = encryptoriov1beta1.PushEncryptedSecretStatus{
-			Status:           "ERROR",
-			Reason:           err,
-			Hash:             hash,
-			LastUpdate:       metav1.Now(),
-			ErrorOnOperation: operation,
+			Status:                "ERROR",
+			Reason:                err,
+			Hash:                  hash,
+			LastUpdate:            metav1.Now(),
+			ErrorOnOperation:      operation,
+			SecretResourceVersion: obj.Status.SecretResourceVersion,
+			LastSyncTime:          obj.Status.LastSyncTime,
 		}
 	})
 	if updateErr != nil {
@@ -47,13 +69,15 @@ func (r *PushEncryptedSecretReconciler) handleErrorStatus(logger logr.Logger, ct
 }
 
 func (r *PushEncryptedSecretReconciler) handleSuccessStatus(logger logr.Logger, ctx context.Context, encryptedSecret *encryptoriov1beta1.PushEncryptedSecret, hash string, secretResourceVersion string) (ctrl.Result, error) {
+	now := metav1.Now()
 	updateErr := r.updateStatusWithRetry(ctx, encryptedSecret, func(obj *encryptoriov1beta1.PushEncryptedSecret) {
 		obj.Status = encryptoriov1beta1.PushEncryptedSecretStatus{
 			Status:                "SUCCESS",
 			Reason:                "",
 			Hash:                  hash,
-			LastUpdate:            metav1.Now(),
+			LastUpdate:            now,
 			SecretResourceVersion: secretResourceVersion,
+			LastSyncTime:          now,
 		}
 	})
 	if updateErr != nil {

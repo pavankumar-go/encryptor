@@ -22,6 +22,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
@@ -61,6 +62,12 @@ const (
 	// still guaranteed even if an Update event predicate is missed, without
 	// paying the KMS decrypt cost on every reconcile.
 	reconcileIntervalSeconds = 60
+
+	// failedSyncRetryInterval bounds how often a resource whose last sync failed
+	// is retried while its spec is unchanged. Most such failures are permanent
+	// (e.g. InvalidCiphertextException) and would fail identically, but some are
+	// transient (throttling, IAM propagation) and need an eventual retry.
+	failedSyncRetryInterval = 15 * time.Minute
 )
 
 //+kubebuilder:rbac:groups=encryptor.dev,resources=pushencryptedsecrets,verbs=get;list;watch;create;update;patch;delete
@@ -186,6 +193,16 @@ func (r *PushEncryptedSecretReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.handleSuccessStatus(logger, ctx, encryptedSecret, resourceHash, secretResourceVersion)
 	}
 
+	// Resources last synced before lastSyncTime existed won't sync again until
+	// their spec changes; for a SUCCESS status, lastUpdate is that sync time.
+	if encryptedSecret.Status.Status == "SUCCESS" && encryptedSecret.Status.LastSyncTime.IsZero() {
+		if err := r.updateStatusWithRetry(ctx, encryptedSecret, func(obj *encryptoriov1beta1.PushEncryptedSecret) {
+			obj.Status.LastSyncTime = obj.Status.LastUpdate
+		}); err != nil {
+			logger.Error(err, "Failed to backfill lastSyncTime", "Name", encryptedSecret.Name)
+		}
+	}
+
 	logger.Info("Reconcile complete. No changes", "Name", encryptedSecret.Name)
 	return requeueWithTimeout(reconcileIntervalSeconds)
 }
@@ -196,21 +213,17 @@ func (r *PushEncryptedSecretReconciler) changesDetected(ctx context.Context, obj
 	newHash, _ := hashstructure.Hash(obj.Spec, nil)
 	newHashStr := strconv.FormatUint(newHash, 10)
 
-	if oldHash == "" {
-		return true // empty hash means new resource
+	if oldHash == "" || newHashStr != oldHash {
+		return true // new resource, or spec changed since the last attempt
 	}
 
-	// reconcile if hash dont match AND if previous create/update as failed
-	if newHashStr == oldHash && obj.Status.Status == "ERROR" {
-		return true
-	}
-
-	if newHashStr != oldHash && obj.Status.Status == "ERROR" {
-		return true
-	}
-
-	if newHashStr != oldHash {
-		return true
+	if obj.Status.Status == "ERROR" {
+		// Same spec as an attempt that already failed, so decrypting again would
+		// almost certainly fail the same way. Retry only after a cooldown in case
+		// the failure was transient. This must return before ownedSecretDrifted:
+		// a never-synced resource has no Secret, which would read as drift and
+		// force a decrypt on every reconcile.
+		return time.Since(obj.Status.LastUpdate.Time) >= failedSyncRetryInterval
 	}
 
 	// spec is unchanged and the last sync succeeded, but the owned Secret could
@@ -235,10 +248,28 @@ func (r *PushEncryptedSecretReconciler) ownedSecretDrifted(ctx context.Context, 
 	return secret.ResourceVersion != obj.Status.SecretResourceVersion
 }
 
+// deletionStartedPredicate passes only the update that first sets deletionTimestamp,
+// so deletion is picked up without relying on the API server bumping generation.
+// Later updates to an object already being deleted (e.g. our own status writes
+// after a failed SSM delete) don't pass, leaving retries to the rate limiter.
+var deletionStartedPredicate = predicate.Funcs{
+	CreateFunc:  func(event.CreateEvent) bool { return false },
+	DeleteFunc:  func(event.DeleteEvent) bool { return false },
+	GenericFunc: func(event.GenericEvent) bool { return false },
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		return e.ObjectOld.GetDeletionTimestamp() == nil && e.ObjectNew.GetDeletionTimestamp() != nil
+	},
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *PushEncryptedSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&encryptoriov1beta1.PushEncryptedSecret{}, builder.WithPredicates(
+			// Only spec changes (generation bumps) or the start of deletion may
+			// trigger a reconcile. Status-only updates - including the ones this
+			// controller writes itself - must not, or every failed attempt's status
+			// write requeues the object immediately and bypasses the rate limiter.
+			predicate.Or(predicate.GenerationChangedPredicate{}, deletionStartedPredicate),
 			predicate.Funcs{
 				UpdateFunc: func(e event.UpdateEvent) bool {
 					// kubectl delete adds deletionTimeStamp which is an update event.
@@ -441,5 +472,13 @@ func (r *PushEncryptedSecretReconciler) decideOnUpdate(oldObject, newObject *enc
 		return true
 	}
 
-	return oldObject.Status != newObject.Status
+	// Anything else reaching here is a status-only echo of a write this
+	// controller just made itself (success or error), with an unchanged spec.
+	// Reconciling again immediately is never correct for either case: on
+	// success there's nothing left to do (the periodic recheck in Reconcile
+	// already covers future drift), and on error it would race ahead of - and
+	// defeat - controller-runtime's exponential backoff on the returned error,
+	// since an immediate requeue from this predicate is not rate-limited the
+	// way a requeue from a Reconcile error is.
+	return false
 }

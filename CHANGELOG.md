@@ -5,6 +5,14 @@
 ### Added
 
 - `spec.labels`: applied to the Kubernetes Secret managed by this resource (e.g. `argocd.argoproj.io/secret-type: repo-creds`), kept in sync exactly — removing a label from `spec.labels` removes it from the Secret too.
+- `status.lastSyncTime` and a `LAST SYNC` column in `kubectl get pes`, showing when secrets were last successfully synced. For resources already in SUCCESS, it's backfilled from `lastUpdate`.
+
+### Fixed
+
+- A resource with a permanently failing entry (e.g. ciphertext KMS rejects with `InvalidCiphertextException`) could reconcile ~20 times a second, issuing a KMS Decrypt on every attempt. Each failure's status write triggered an immediate requeue that bypassed the rate limiter's backoff. Now:
+  - the watch only reacts to spec changes (`GenerationChangedPredicate`) or the start of deletion, so status writes no longer trigger reconciles;
+  - an identical repeat failure (ignoring the per-call AWS RequestID) no longer rewrites status;
+  - a resource whose last sync failed is not decrypted again until its spec changes, or at most once every 15 minutes in case the failure was transient.
 
 ## [0.2.0] - 2026-08-14
 

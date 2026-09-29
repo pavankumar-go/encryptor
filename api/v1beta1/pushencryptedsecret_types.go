@@ -81,11 +81,16 @@ type PushEncryptedSecretStatus struct {
 	// matches this means the Secret was modified since (e.g. a manually edited or
 	// deleted key), and it needs to be resynced from the CRD.
 	SecretResourceVersion string `json:"secretResourceVersion,omitempty"`
+
+	// LastSyncTime is when secrets were last successfully synced. Unlike
+	// LastUpdate, it is not changed by a failed sync.
+	LastSyncTime metav1.Time `json:"lastSyncTime,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="STATUS",type="string",JSONPath=`.status.status`
+//+kubebuilder:printcolumn:name="LAST SYNC",type="date",JSONPath=`.status.lastSyncTime`
 
 // PushEncryptedSecret is the Schema for the pushencryptedsecrets API
 type PushEncryptedSecret struct {
